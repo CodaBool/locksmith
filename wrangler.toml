@@ -1,0 +1,9 @@
+name = "locksmith"
+main = "index.js"
+compatibility_date = "2023-10-25"
+node_compat = true
+workers_dev = true
+browser = { binding = "MYBROWSER" }
+
+[vars]
+DEBUG = true
