@@ -1,7 +1,6 @@
 import puppeteer from "puppeteer"
-import 'dotenv/config'
 
-const BATCH_SIZE = 2
+const BATCH_SIZE = 100 // max is 100
 const MINIMUM = 500
 
 main()
@@ -23,7 +22,7 @@ async function foundry() {
   const data = {
     package_name: 'terminal',
     quantity: BATCH_SIZE,
-    dry_run: process.env.DEBUG ? true : false,
+    dry_run: process.env.DEBUG === true ? true : false,
   }
   const res = await fetch("https://api.foundryvtt.com/_api/packages/issue-key", {
     headers: {
@@ -42,7 +41,7 @@ async function foundry() {
 }
 
 async function main() {
-  console.log(process.env.DEBUG ? "running in debug mode" : "running production mode")
+  console.log(process.env.DEBUG === true ? "running in debug mode" : "running production mode")
   const ids = await itch()
 
   // TODO: get keys for different modules
@@ -53,11 +52,6 @@ async function main() {
     const browser = await puppeteer.launch({headless: false})
     const page = await browser.newPage()
     await page.goto(`https://itch.io/game/external-keys/${id}`)
-
-    if (process.env.DEBUG) {
-      const currentURL = page.url()
-      console.log('Current URL:', currentURL)
-    }
 
     // login
     await page.type('input[name="username"]', 'codabool')
@@ -80,11 +74,6 @@ async function main() {
       console.log(`${title} had ${text} keys remaining`)
     }
 
-    const postLogin = page.url()
-    if (process.env.DEBUG) {
-      console.log('postLogin URL:', postLogin)
-    }
-  
     await page.select('select[name="keys[type]"]', 'other')
   
     const textarea = await page.$('textarea')

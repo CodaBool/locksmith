@@ -6,12 +6,11 @@
     "deploy": "wrangler deploy",
     "dev": "wrangler dev",
     "remote": "wrangler dev --remote",
-    "start": "node main.js"
+    "start": "node --env-file .dev.vars main.js"
   },
   "dependencies": {
     "@cloudflare/puppeteer": "^0.0.5",
-    "dotenv": "^16.3.1",
-    "puppeteer": "^21.4.1",
-    "wrangler": "^3.15.0"
+    "puppeteer": "^21.5.2",
+    "wrangler": "^3.17.1"
   }
 }
