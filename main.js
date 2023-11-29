@@ -3,6 +3,11 @@ import puppeteer from "puppeteer"
 const BATCH_SIZE = 100 // max is 100
 const MINIMUM = 500
 
+// map itch ID to Foundry package name
+const MODULES = {
+  2331647: "terminal",
+}
+
 main()
 
 async function itch() {
@@ -13,15 +18,15 @@ async function itch() {
   const ids = new Map()
   data.games.forEach(game => {
     console.log(`${game.title}: purchased ${game.purchases_count} with ${game.views_count} views`)
-    ids.set(game.id, game.title)
+    ids.set(game.id, game)
   })
   return ids
 }
 
-async function foundry() {
+async function foundry(package_name) {
   const data = {
-    package_name: 'terminal',
-    quantity: BATCH_SIZE,
+    package_name,
+    quantity: BATCH_SIZE, // 100 max
     dry_run: process.env.DEBUG === true ? true : false,
   }
   const res = await fetch("https://api.foundryvtt.com/_api/packages/issue-key", {
@@ -34,7 +39,7 @@ async function foundry() {
   })
   const body = await res.json()
   if (body.status !== "success" || body.keys.length !== BATCH_SIZE) {
-    console.log("failed generating keys", body)
+    console.error("failed generating keys", body)
     return
   }
   return body.keys
@@ -44,12 +49,9 @@ async function main() {
   console.log(process.env.DEBUG === true ? "running in debug mode" : "running production mode")
   const ids = await itch()
 
-  // TODO: get keys for different modules
-  const keys = await foundry()
-
-  for (const [id, title] of ids) {
-    console.log(`==== Puppeteer for ${title} ====`)
-    const browser = await puppeteer.launch({headless: false})
+  for (const [id, game] of ids) {
+    console.log(`==== Puppeteer for ${game.title} ====`)
+    const browser = await puppeteer.launch({ headless: false })
     const page = await browser.newPage()
     await page.goto(`https://itch.io/game/external-keys/${id}`)
 
@@ -63,35 +65,61 @@ async function main() {
     // keys
     await page.goto(`https://itch.io/game/external-keys/${id}`)
 
-
     // find current remaining keys
     const tbody = await page.$('tbody')
     const secondTd = await tbody.$$('td').then(tds => tds[1])
-    const text = await page.evaluate(el => el.textContent, secondTd);
-    if (Number(text) < MINIMUM) {
-      console.log(`DANGER! ${title} has ${text} keys remaining`)
+    let keys = await page.evaluate(el => el.textContent, secondTd)
+    keys = Number(keys)
+
+    if (keys < MINIMUM) {
+      console.log(`DANGER! ${game.title} has ${keys} keys remaining`)
+
+      // fetch keys
+      const generated = await foundry(MODULES[id])
+      if (!generated) {
+        console.error("failed to generate foundry keys for", game.title)
+        return
+      }
+      
+      // insert keys
+      await page.select('select[name="keys[type]"]', 'other')
+  
+      const textarea = await page.$('textarea')
+      let keyText = ""
+      generated.forEach(text => {
+        keyText += text + "\n"
+      })
+      await textarea.type(keyText)
+    
+      const btns = await page.$$('button')
+      await btns[btns.length -1].click()
+      await page.waitForNavigation({ waitUntil: 'networkidle0' })
+
+      keys += BATCH_SIZE
+
     } else {
-      console.log(`${title} had ${text} keys remaining`)
+      console.log(`${game.title} has ${keys} keys remaining`)
     }
 
-    await page.select('select[name="keys[type]"]', 'other')
-  
-    const textarea = await page.$('textarea')
-    let keyText = ""
-    keys.forEach(key => {
-      keyText += key + "\n"
-    })
-    await textarea.type(keyText)
-  
-    const btns = await page.$$('button')
-    await btns[btns.length -1].click()
-    await page.waitForNavigation({ waitUntil: 'networkidle0' })
-  
     // Close the browser
     await browser.close()
-  
-    // return new Response(`added ${keys.length} keys for ${title}, verify at https://itch.io/game/external-keys/${id}/other`)
 
-    console.log(`added ${keys.length} keys, total is now ${Number(text) + keys.length} verify at https://itch.io/game/external-keys/${id}/other for ${title}`)
+    // update DB
+    const raw = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${process.env.CF_ACCOUNT}/d1/database/${process.env.D1_ID}/query`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.CF_TOKEN}`},
+      body: `{"params":[${game.purchases_count},${keys},${game.views_count},"${MODULES[id]}"],"sql":"UPDATE itch SET purchases = ?, keys = ?, views = ? WHERE module = ?;"}`
+    })
+    // console.log("statment", `{"params":[${game.purchases_count},${keys},${game.views_count},"${MODULES[id]}"],"sql":"UPDATE itch SET purchases = ?, keys = ?, views = ? WHERE module = ?;"}`)
+    const res = await raw.json()
+    if (res.errors.length) {
+      console.error(res.errors[0])
+    }
+    console.log("wrote to", res?.result[0]?.meta?.rows_written, "row")
+  
+    console.log(`${keys} keys available, verify at https://itch.io/game/external-keys/${id}/other for ${game.title}`)
   }
 }

@@ -7,3 +7,8 @@ browser = { binding = "MYBROWSER" }
 
 [vars]
 DEBUG = true
+
+[[d1_databases]]
+binding = "D1"
+database_name = "foundry"
+database_id = "64163431-5f3e-4f6d-90e4-4a07d177374f"
